@@ -85,46 +85,45 @@ namespace containers
             return std::nullopt;
         }
 
-        optional<size_t> find_idx(size_t key) const
+        typename std::vector<std::pair<size_t, T>>::iterator find_iter(size_t key)
         {
-            for (size_t i = 0; i < data_.size(); ++i)
-            {
-                if (data_[i].first == key)
-                {
-                	return i;
-                }
-            }
-
-            return std::nullopt;
+            return std::find_if(data_.begin(), data_.end(),
+                [key](const auto& item) { return item.first == key; });
         }
 
-		bool insert(size_t key, const T& value) override
-		{
-    		if (!find(key))
-    		{
-        		data_.emplace_back(key, value);
+        typename std::vector<std::pair<size_t, T>>::const_iterator find_iter(size_t key) const
+        {
+            return std::find_if(data_.cbegin(), data_.cend(),
+                [key](const auto& item) { return item.first == key; });
+        }
 
-        		return true;
-    		}
+        bool insert(size_t key, const T& value) override
+        {
+            if (find_iter(key) == data_.end())
+            {
+                data_.emplace_back(key, value);
+
+                return true;
+            }
 
             return false;
         }
 
-		bool erase(size_t key) override
-		{
-    		auto idx = find_idx(key);
+        bool erase(size_t key) override
+        {
+            auto it = find_iter(key);
 
-    		if (idx)
-   			{
-        		std::swap(data_[idx.value()], data_.back());
+            if (it != data_.end())
+            {
+                std::swap(*it, data_.back());
 
-        		data_.pop_back();
+                data_.pop_back();
 
-        		return true;
-   			}
-    			
-    		return false;
-			}
+                return true;
+            }
+
+            return false;
+        }
 
         friend std::ostream& operator<<(std::ostream& os, const UnorderedTable<T>& table)
         {
@@ -153,15 +152,20 @@ namespace containers
         OrderedTable() = default;
         ~OrderedTable() = default;
 
-        optional<pair<size_t, T>> find(size_t key) const override
+        typename std::vector<std::pair<size_t, T>>::const_iterator find_iter(size_t key) const
         {
-            auto it = std::lower_bound(data_.begin(), data_.end(), key,
-                [](const std::pair<size_t, T>& item, size_t k) 
+            return std::lower_bound(data_.cbegin(), data_.cend(), key,
+                [](const std::pair<size_t, T>& item, size_t k)
                 {
                     return item.first < k;
                 });
+        }
 
-            if (it != data_.end() && it->first == key)
+        optional<pair<size_t, T>> find(size_t key) const override
+        {
+            auto it = find_iter(key);
+
+            if (it != data_.end())
             {
                 return *it;
             }
@@ -210,6 +214,121 @@ namespace containers
             for (const auto& item : table.data_)
             {
                 os << item.first << " " << item.second << std::endl;
+            }
+
+            return os;
+        }
+    };
+
+
+
+    template<typename T>
+    class HashTable : public TableInterface<T>
+    {
+    protected:
+        static const size_t DEFAULT_CAPACITY = 101;
+
+        std::vector<std::vector<std::pair<size_t, T>>> buckets_;
+
+        size_t count_ = 0;
+
+        size_t hash(size_t key) const
+        {
+            return key % buckets_.size();
+        }
+
+    public:
+        HashTable(size_t capacity = DEFAULT_CAPACITY) : buckets_(capacity) {}
+
+        ~HashTable() = default;
+
+        bool insert(size_t key, const T& value) override
+        {
+            size_t idx = hash(key);
+
+            auto& bucket = buckets_[idx];
+
+            for (auto& item : bucket)
+            {
+                if (item.first == key)
+                {
+                    return false;
+                }
+            }
+
+            bucket.emplace_back(key, value);
+
+            ++count_;
+
+            return true;
+        }
+
+        bool erase(size_t key) override
+        {
+            size_t idx = hash(key);
+
+            auto& bucket = buckets_[idx];
+
+            for (auto it = bucket.begin(); it != bucket.end(); ++it)
+            {
+                if (it->first == key)
+                {
+                    bucket.erase(it);
+
+                    --count_;
+
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        optional<std::pair<size_t, T>> find(size_t key) const override
+        {
+            size_t idx = hash(key);
+
+            const auto& bucket = buckets_[idx];
+
+            for (const auto& item : bucket)
+            {
+                if (item.first == key)
+                {
+                    return item;
+                }
+            }
+
+            return std::nullopt;
+        }
+
+        size_t size() const noexcept override
+        {
+            return count_;
+        }
+
+        bool empty() const noexcept override
+        {
+            return count_ == 0;
+        }
+
+        void clear() override
+        {
+            for (auto& bucket : buckets_)
+            {
+                bucket.clear();
+            }
+
+            count_ = 0;
+        }
+
+        friend std::ostream& operator<<(std::ostream& os, const HashTable<T>& table)
+        {
+            for (const auto& bucket : table.buckets_)
+            {
+                for (const auto& item : bucket)
+                {
+                    os << item.first << " " << item.second << std::endl;
+                }
             }
 
             return os;
